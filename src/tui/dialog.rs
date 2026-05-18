@@ -420,7 +420,10 @@ fn render_graduate<W: Write>(
     queue!(
         out,
         SetForegroundColor(Color::DarkGrey),
-        Print(format!("Destination (under {}): ", projects.as_path().display())),
+        Print(format!(
+            "Destination (under {}): ",
+            projects.as_path().display()
+        )),
         ResetColor,
     )?;
     queue!(out, MoveTo(2, 6))?;

@@ -22,11 +22,7 @@ pub fn emit<W: Write>(out: &mut W, action: &Action) -> io::Result<()> {
 
 /// Variant of [`emit`] that takes the working directory explicitly. Production
 /// code uses [`emit`]; tests use this to get deterministic snapshot output.
-pub fn emit_with_pwd<W: Write>(
-    out: &mut W,
-    action: &Action,
-    pwd: Option<&Path>,
-) -> io::Result<()> {
+pub fn emit_with_pwd<W: Write>(out: &mut W, action: &Action, pwd: Option<&Path>) -> io::Result<()> {
     let cmds = commands(action, pwd);
     writeln!(out, "{WARNING}")?;
     let last = cmds.len().saturating_sub(1);
@@ -88,7 +84,9 @@ fn commands(action: &Action, pwd: Option<&Path>) -> Vec<String> {
                 format!("mkdir -p {qp}"),
                 format!(
                     "echo {}",
-                    quote(&format!("Using git worktree to create this trial from {msg_src}."))
+                    quote(&format!(
+                        "Using git worktree to create this trial from {msg_src}."
+                    ))
                 ),
                 inner,
             ];
@@ -107,7 +105,10 @@ fn commands(action: &Action, pwd: Option<&Path>) -> Vec<String> {
             // to `base` if that pwd no longer exists. We do the same here so
             // the shell ends up in a valid directory.
             let pwd_buf: PathBuf = pwd.map_or_else(|| base.clone(), Path::to_path_buf);
-            v.push(format!("cd {} 2>/dev/null || cd {qbase}", quote_path(&pwd_buf)));
+            v.push(format!(
+                "cd {} 2>/dev/null || cd {qbase}",
+                quote_path(&pwd_buf)
+            ));
             v
         }
 
@@ -154,11 +155,7 @@ fn commands(action: &Action, pwd: Option<&Path>) -> Vec<String> {
 
 fn cd_cmds(path: &Path) -> Vec<String> {
     let q = quote_path(path);
-    vec![
-        format!("touch {q}"),
-        format!("echo {q}"),
-        format!("cd {q}"),
-    ]
+    vec![format!("touch {q}"), format!("echo {q}"), format!("cd {q}")]
 }
 
 #[cfg(test)]

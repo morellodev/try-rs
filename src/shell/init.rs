@@ -57,9 +57,9 @@ fn render_posix(binary_q: &str, explicit: Option<&Path>, default: &str) -> Strin
 fn render_fish(binary_q: &str, explicit: Option<&Path>, default: &str) -> String {
     let path_arg = match explicit {
         Some(p) => format!(" --path {}", quote(&p.to_string_lossy())),
-        None => format!(
-            " --path (if set -q TRY_PATH; echo \"$TRY_PATH\"; else; echo '{default}'; end)"
-        ),
+        None => {
+            format!(" --path (if set -q TRY_PATH; echo \"$TRY_PATH\"; else; echo '{default}'; end)")
+        }
     };
 
     format!(

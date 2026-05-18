@@ -85,7 +85,10 @@ mod tests {
 
     #[test]
     fn detect_picks_fish_first() {
-        assert_eq!(detect_from(Some("/usr/local/bin/fish"), None), Some(Shell::Fish));
+        assert_eq!(
+            detect_from(Some("/usr/local/bin/fish"), None),
+            Some(Shell::Fish)
+        );
     }
 
     #[test]

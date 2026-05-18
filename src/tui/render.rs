@@ -195,7 +195,12 @@ fn draw_entry<W: Write>(
     // row background so emphasis works on both light and dark terminal
     // themes without relying on a single bg/fg pair.
     if selected {
-        queue!(out, SetAttribute(Attribute::Bold), Print("→ "), SetAttribute(Attribute::Reset))?;
+        queue!(
+            out,
+            SetAttribute(Attribute::Bold),
+            Print("→ "),
+            SetAttribute(Attribute::Reset)
+        )?;
     } else {
         queue!(out, Print("  "))?;
     }
@@ -223,7 +228,11 @@ fn draw_entry<W: Write>(
     // terminal theme without a row background. Fuzzy highlights are skipped
     // because the row is about to be removed.
     let displayed_cols = if marked {
-        queue!(out, SetForegroundColor(Color::Red), SetAttribute(Attribute::Bold))?;
+        queue!(
+            out,
+            SetForegroundColor(Color::Red),
+            SetAttribute(Attribute::Bold)
+        )?;
         let cols_used = write_plain_name(out, &row.workspace.name, name_budget)?;
         queue!(out, SetAttribute(Attribute::Reset), ResetColor)?;
         cols_used
@@ -251,7 +260,12 @@ fn draw_create_new<W: Write>(
     queue!(out, MoveTo(0, terminal_row))?;
 
     if selected {
-        queue!(out, SetAttribute(Attribute::Bold), Print("→ "), SetAttribute(Attribute::Reset))?;
+        queue!(
+            out,
+            SetAttribute(Attribute::Bold),
+            Print("→ "),
+            SetAttribute(Attribute::Reset)
+        )?;
     } else {
         queue!(out, Print("  "))?;
     }
@@ -291,7 +305,11 @@ fn write_highlighted_name<W: Write>(
     }
     let full_width = UnicodeWidthStr::width(name);
     let needs_truncate = full_width > max_cols;
-    let budget = if needs_truncate { max_cols.saturating_sub(1) } else { max_cols };
+    let budget = if needs_truncate {
+        max_cols.saturating_sub(1)
+    } else {
+        max_cols
+    };
 
     let mut cols = 0;
     let mut pos_iter = positions.iter().copied().peekable();
@@ -331,7 +349,11 @@ fn write_plain_name<W: Write>(out: &mut W, name: &str, max_cols: usize) -> io::R
     }
     let full_width = UnicodeWidthStr::width(name);
     let needs_truncate = full_width > max_cols;
-    let budget = if needs_truncate { max_cols.saturating_sub(1) } else { max_cols };
+    let budget = if needs_truncate {
+        max_cols.saturating_sub(1)
+    } else {
+        max_cols
+    };
 
     let mut cols = 0;
     for ch in name.chars() {
@@ -367,9 +389,8 @@ fn draw_footer<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16, rows: u16)
         )?;
         let n = screen.marked.len();
         let word = if n == 1 { "item" } else { "items" };
-        let line = format!(
-            " DELETE MODE  {n} {word} marked — Ctrl-D toggle  Enter confirm  Esc cancel ",
-        );
+        let line =
+            format!(" DELETE MODE  {n} {word} marked — Ctrl-D toggle  Enter confirm  Esc cancel ",);
         let padding = (cols as usize).saturating_sub(UnicodeWidthStr::width(line.as_str()));
         queue!(
             out,

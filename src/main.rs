@@ -5,10 +5,10 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
+use anstream::AutoStream;
 use try_rs::action::Action;
 use try_rs::clock::{Clock, SystemClock};
 use try_rs::shell::{emit, init, kind::Shell};
-use anstream::AutoStream;
 
 use try_rs::tui::{
     input::{self, ScriptedKeys, TerminalKeys},
@@ -132,10 +132,7 @@ enum ExecCommand {
         query: Vec<String>,
     },
     /// Clone a git repository into a date-prefixed directory.
-    Clone {
-        uri: String,
-        name: Option<String>,
-    },
+    Clone { uri: String, name: Option<String> },
     /// Create a detached git worktree from the current repo in a date-prefixed directory.
     Worktree {
         repo: Option<String>,
@@ -158,8 +155,8 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<()> {
     let clock = SystemClock;
-    let root = WorkspaceRoot::new(resolve_root(cli.path.as_deref())?)
-        .context("invalid workspace root")?;
+    let root =
+        WorkspaceRoot::new(resolve_root(cli.path.as_deref())?).context("invalid workspace root")?;
 
     let test = TestFlags {
         and_type: cli.and_type,
@@ -173,9 +170,10 @@ fn run(cli: Cli) -> Result<()> {
     let cmd = cli.command.unwrap_or(Command::Exec { sub: None });
 
     match cmd {
-        Command::Init { explicit_path, shell } => {
-            init_cmd(&root, explicit_path.as_deref(), shell.as_deref())
-        }
+        Command::Init {
+            explicit_path,
+            shell,
+        } => init_cmd(&root, explicit_path.as_deref(), shell.as_deref()),
         Command::Clone { uri, name } => clone(&root, &clock, &uri, name.as_deref()),
         Command::Worktree { repo, name } => {
             worktree(&root, &clock, repo.as_deref(), name.as_deref())
@@ -211,8 +209,7 @@ fn clone(root: &WorkspaceRoot, clock: &dyn Clock, uri: &str, name: Option<&str>)
     {
         n.to_string()
     } else {
-        let parsed =
-            git::parse(uri).with_context(|| format!("could not parse git URI: {uri}"))?;
+        let parsed = git::parse(uri).with_context(|| format!("could not parse git URI: {uri}"))?;
         git::clone_dir_name(&parsed, &clock.today())
     };
 
@@ -450,7 +447,9 @@ fn resolve_root(override_path: Option<&Path>) -> Result<PathBuf> {
     if let Some(env) = std::env::var_os("TRY_PATH") {
         return expand_user(Path::new(&env));
     }
-    Ok(std::env::home_dir().context("HOME is not set")?.join(DEFAULT_SUBDIR))
+    Ok(std::env::home_dir()
+        .context("HOME is not set")?
+        .join(DEFAULT_SUBDIR))
 }
 
 fn expand_user(p: &Path) -> Result<PathBuf> {
@@ -467,4 +466,3 @@ fn expand_user(p: &Path) -> Result<PathBuf> {
     // Resolve relative paths against the current working directory.
     Ok(std::env::current_dir()?.join(p))
 }
-

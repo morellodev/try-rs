@@ -102,8 +102,8 @@ mod tests {
     fn date_prefix_detection() {
         assert!(has_date_prefix("2025-01-02-foo"));
         assert!(has_date_prefix("9999-99-99-anything")); // matches regex, not calendar
-        assert!(!has_date_prefix("2025-01-02"));        // no trailing hyphen
-        assert!(!has_date_prefix("2025-1-02-foo"));     // single-digit month
+        assert!(!has_date_prefix("2025-01-02")); // no trailing hyphen
+        assert!(!has_date_prefix("2025-1-02-foo")); // single-digit month
         assert!(!has_date_prefix("foo-2025-01-02-bar"));
         assert!(!has_date_prefix("short"));
     }

@@ -413,10 +413,14 @@ mod tests {
         }
     }
 
+    fn root_path() -> PathBuf {
+        PathBuf::from(if cfg!(windows) { "C:\\tries" } else { "/tries" })
+    }
+
     fn ws(name: &str) -> Workspace {
         Workspace {
             name: name.to_string(),
-            path: PathBuf::from("/tries").join(name),
+            path: root_path().join(name),
             is_symlink: false,
             modified: SystemTime::UNIX_EPOCH,
             created: SystemTime::UNIX_EPOCH,
@@ -425,7 +429,7 @@ mod tests {
     }
 
     fn root() -> WorkspaceRoot {
-        WorkspaceRoot::new(PathBuf::from("/tries")).unwrap()
+        WorkspaceRoot::new(root_path()).unwrap()
     }
 
     fn rows_of<'a>(workspaces: &'a [Workspace]) -> Vec<Row<'a>> {
@@ -569,7 +573,7 @@ mod tests {
         let outcome = apply_key(&mut state, Key::Enter, &ctx(&rows, None, &root, &clock));
         match outcome {
             Outcome::Selected(Action::Cd { path }) => {
-                assert_eq!(path, PathBuf::from("/tries/beta"));
+                assert_eq!(path, root_path().join("beta"));
             }
             other => panic!("unexpected outcome: {other:?}"),
         }
@@ -587,10 +591,14 @@ mod tests {
             scroll: 0,
             marked: vec![],
         };
-        let outcome = apply_key(&mut state, Key::Enter, &ctx(&[], Some(label), &root, &clock));
+        let outcome = apply_key(
+            &mut state,
+            Key::Enter,
+            &ctx(&[], Some(label), &root, &clock),
+        );
         match outcome {
             Outcome::Selected(Action::Mkdir { path }) => {
-                assert_eq!(path, PathBuf::from("/tries/2026-05-16-redis-pool"));
+                assert_eq!(path, root_path().join("2026-05-16-redis-pool"));
             }
             other => panic!("unexpected outcome: {other:?}"),
         }
@@ -610,7 +618,7 @@ mod tests {
         let outcome = apply_key(&mut state, Key::Ctrl('t'), &ctx(&[], None, &root, &clock));
         match outcome {
             Outcome::Selected(Action::Mkdir { path }) => {
-                assert_eq!(path, PathBuf::from("/tries/2026-05-16-new-thing"));
+                assert_eq!(path, root_path().join("2026-05-16-new-thing"));
             }
             other => panic!("unexpected outcome: {other:?}"),
         }

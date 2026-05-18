@@ -74,18 +74,17 @@ impl<'a> Matcher<'a> {
             .iter()
             .enumerate()
             .filter_map(|(index, c)| {
-                score_one(&c.text_lower, c.char_count, c.base_score, &query_lower)
-                    .map(|(score, positions)| Hit {
+                score_one(&c.text_lower, c.char_count, c.base_score, &query_lower).map(
+                    |(score, positions)| Hit {
                         index,
                         score,
                         positions,
-                    })
+                    },
+                )
             })
             .collect();
 
-        hits.sort_unstable_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal)
-        });
+        hits.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
         if limit > 0 && limit < hits.len() {
             hits.truncate(limit);
         }

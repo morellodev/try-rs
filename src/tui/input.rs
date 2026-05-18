@@ -188,9 +188,7 @@ fn parse_token(tok: &str) -> Vec<Key> {
         "ESC" => vec![Key::Escape],
         "BACKSPACE" => vec![Key::Backspace],
         _ if upper.starts_with("CTRL") => {
-            let rest = upper
-                .trim_start_matches("CTRL")
-                .trim_start_matches('-');
+            let rest = upper.trim_start_matches("CTRL").trim_start_matches('-');
             rest.chars()
                 .next()
                 .map(|c| vec![Key::Ctrl(c.to_ascii_lowercase())])
@@ -233,25 +231,40 @@ mod tests {
 
     #[test]
     fn plain_char_decodes_to_char() {
-        assert_eq!(decode(key(KeyCode::Char('a'), KeyModifiers::NONE)), Key::Char('a'));
+        assert_eq!(
+            decode(key(KeyCode::Char('a'), KeyModifiers::NONE)),
+            Key::Char('a')
+        );
     }
 
     #[test]
     fn shift_char_keeps_case() {
         // Crossterm reports the shifted character directly.
-        assert_eq!(decode(key(KeyCode::Char('A'), KeyModifiers::SHIFT)), Key::Char('A'));
+        assert_eq!(
+            decode(key(KeyCode::Char('A'), KeyModifiers::SHIFT)),
+            Key::Char('A')
+        );
     }
 
     #[test]
     fn ctrl_char_normalizes_to_lowercase() {
-        assert_eq!(decode(key(KeyCode::Char('D'), KeyModifiers::CONTROL)), Key::Ctrl('d'));
-        assert_eq!(decode(key(KeyCode::Char('p'), KeyModifiers::CONTROL)), Key::Ctrl('p'));
+        assert_eq!(
+            decode(key(KeyCode::Char('D'), KeyModifiers::CONTROL)),
+            Key::Ctrl('d')
+        );
+        assert_eq!(
+            decode(key(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            Key::Ctrl('p')
+        );
     }
 
     #[test]
     fn named_keys_decode() {
         assert_eq!(decode(key(KeyCode::Enter, KeyModifiers::NONE)), Key::Enter);
-        assert_eq!(decode(key(KeyCode::Backspace, KeyModifiers::NONE)), Key::Backspace);
+        assert_eq!(
+            decode(key(KeyCode::Backspace, KeyModifiers::NONE)),
+            Key::Backspace
+        );
         assert_eq!(decode(key(KeyCode::Esc, KeyModifiers::NONE)), Key::Escape);
         assert_eq!(decode(key(KeyCode::Up, KeyModifiers::NONE)), Key::Up);
         assert_eq!(decode(key(KeyCode::Down, KeyModifiers::NONE)), Key::Down);
@@ -290,7 +303,10 @@ mod tests {
     fn parse_keys_spec_ctrl_variants() {
         assert_eq!(parse_keys_spec("CTRL-D"), vec![Key::Ctrl('d')]);
         assert_eq!(parse_keys_spec("CTRLD"), vec![Key::Ctrl('d')]);
-        assert_eq!(parse_keys_spec("CTRL-A,CTRL-R"), vec![Key::Ctrl('a'), Key::Ctrl('r')]);
+        assert_eq!(
+            parse_keys_spec("CTRL-A,CTRL-R"),
+            vec![Key::Ctrl('a'), Key::Ctrl('r')]
+        );
     }
 
     #[test]
@@ -363,7 +379,10 @@ mod tests {
 
     #[test]
     fn parse_keys_spec_unknown_tokens_dropped() {
-        assert_eq!(parse_keys_spec("UP,WHATEVER,ENTER"), vec![Key::Up, Key::Enter]);
+        assert_eq!(
+            parse_keys_spec("UP,WHATEVER,ENTER"),
+            vec![Key::Up, Key::Enter]
+        );
     }
 
     // --- ScriptedKeys ---
