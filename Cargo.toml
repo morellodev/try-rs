@@ -3,6 +3,10 @@ name = "try-rs"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
+license = "MIT"
+description = "Ephemeral workspace manager — fuzzy-search and cd into date-prefixed experiment directories"
+repository = "https://github.com/morellodev/try-rs"
+authors = ["Dennis Morello"]
 
 [[bin]]
 name = "try"
