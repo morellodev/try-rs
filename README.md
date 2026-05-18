@@ -17,6 +17,14 @@ Search: redis
 
 ## Install
 
+**Homebrew (macOS / Linux):**
+
+```sh
+brew install morellodev/tap/try
+```
+
+**From source:**
+
 ```sh
 cargo install --git https://github.com/morellodev/try-rs
 ```
