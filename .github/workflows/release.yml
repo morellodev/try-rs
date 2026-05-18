@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate ref
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check version tag
+        run: |
+          if [[ ! "${{ github.ref_name }}" =~ ^v[0-9] ]]; then
+            echo "::error::This workflow must be run on a version tag (e.g. v1.0.0), got '${{ github.ref_name }}'"
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Ensure target is installed
+        run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            7z a ../../../try-${{ matrix.target }}.zip try.exe
+          else
+            tar czf ../../../try-${{ matrix.target }}.tar.gz try
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: try-${{ matrix.target }}
+          path: |
+            try-${{ matrix.target }}.tar.gz
+            try-${{ matrix.target }}.zip
+
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" try-*.tar.gz try-*.zip --clobber
+          else
+            gh release create "$TAG" try-*.tar.gz try-*.zip --generate-notes
+          fi
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: morellodev/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Update formula
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+
+          DARWIN_ARM64_SHA=$(sha256sum try-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)
+          DARWIN_X86_SHA=$(sha256sum try-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)
+          LINUX_X86_SHA=$(sha256sum try-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
+          LINUX_ARM64_SHA=$(sha256sum try-aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
+
+          DARWIN_ARM64_URL="https://github.com/morellodev/try-rs/releases/download/v${VERSION}/try-aarch64-apple-darwin.tar.gz"
+          DARWIN_X86_URL="https://github.com/morellodev/try-rs/releases/download/v${VERSION}/try-x86_64-apple-darwin.tar.gz"
+          LINUX_X86_URL="https://github.com/morellodev/try-rs/releases/download/v${VERSION}/try-x86_64-unknown-linux-gnu.tar.gz"
+          LINUX_ARM64_URL="https://github.com/morellodev/try-rs/releases/download/v${VERSION}/try-aarch64-unknown-linux-gnu.tar.gz"
+
+          mkdir -p Formula
+          cat > Formula/try.rb << FORMULA
+          class Try < Formula
+            desc "Ephemeral workspace manager for quick experiments"
+            homepage "https://github.com/morellodev/try-rs"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "${DARWIN_ARM64_URL}"
+                sha256 "${DARWIN_ARM64_SHA}"
+              else
+                url "${DARWIN_X86_URL}"
+                sha256 "${DARWIN_X86_SHA}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "${LINUX_ARM64_URL}"
+                sha256 "${LINUX_ARM64_SHA}"
+              else
+                url "${LINUX_X86_URL}"
+                sha256 "${LINUX_X86_SHA}"
+              end
+            end
+
+            def install
+              bin.install "try"
+            end
+
+            def caveats
+              <<~EOS
+                To set up the shell cd wrapper, add to your shell rc:
+                  eval "\$(try init)"
+              EOS
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/try --version")
+            end
+          end
+          FORMULA
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' Formula/try.rb
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/try.rb
+          git commit -m "Update try to ${GITHUB_REF_NAME#v}"
+          git push
