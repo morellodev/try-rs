@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -12,7 +12,9 @@ use try_rs::shell::{emit, init, kind::Shell};
 
 use try_rs::tui::{
     input::{self, ScriptedKeys, TerminalKeys},
-    selector, terminal,
+    selector,
+    strip_sgr::StripSgr,
+    terminal,
 };
 use try_rs::workspace::{ProjectsRoot, WorkspaceRoot};
 use try_rs::{discover, git, naming};
@@ -395,35 +397,24 @@ fn run_selector(
     initial_query: &str,
     confirm: Option<&str>,
 ) -> Result<Option<Action>> {
-    // `AutoStream::never` strips SGR (color/attribute) escapes while
-    // preserving positional escapes; `AutoStream::always` is a transparent
-    // pass-through that keeps colors even when stderr is captured (the spec
-    // test harness relies on this).
-    if strip_color {
-        let mut out = AutoStream::never(io::stderr());
-        Ok(selector::run(
-            &mut out,
-            keys,
-            root,
-            projects,
-            clock,
-            workspaces,
-            initial_query,
-            confirm,
-        )?)
+    // `always`: the spec harness captures stderr and still expects colors.
+    // `AutoStream::never` would also strip the cursor and erase sequences.
+    let stderr = io::stderr().lock();
+    let mut out: Box<dyn Write> = if strip_color {
+        Box::new(StripSgr::new(stderr))
     } else {
-        let mut out = AutoStream::always(io::stderr());
-        Ok(selector::run(
-            &mut out,
-            keys,
-            root,
-            projects,
-            clock,
-            workspaces,
-            initial_query,
-            confirm,
-        )?)
-    }
+        Box::new(AutoStream::always(stderr))
+    };
+    Ok(selector::run(
+        &mut out,
+        keys,
+        root,
+        projects,
+        clock,
+        workspaces,
+        initial_query,
+        confirm,
+    )?)
 }
 
 fn resolve_projects_root(root: &WorkspaceRoot) -> ProjectsRoot {

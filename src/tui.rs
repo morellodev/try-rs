@@ -15,4 +15,5 @@ pub mod dialog;
 pub mod input;
 pub mod render;
 pub mod selector;
+pub mod strip_sgr;
 pub mod terminal;
