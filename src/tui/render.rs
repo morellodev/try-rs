@@ -9,11 +9,11 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use crossterm::cursor::MoveTo;
+use crossterm::queue;
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
-use crossterm::terminal::{Clear, ClearType, size};
-use crossterm::{ExecutableCommand, queue};
+use crossterm::terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate, size};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::clock::format_relative;
@@ -78,21 +78,35 @@ fn terminal_size() -> (u16, u16) {
     (w, h)
 }
 
+/// One write inside a synchronized update, so the terminal never shows a partial frame.
+pub fn write_frame<W: Write>(
+    out: &mut W,
+    paint: impl FnOnce(&mut Vec<u8>) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut frame = Vec::new();
+    queue!(frame, BeginSynchronizedUpdate)?;
+    paint(&mut frame)?;
+    queue!(frame, EndSynchronizedUpdate)?;
+    out.write_all(&frame)?;
+    out.flush()
+}
+
 /// Write a complete frame to `out`.
 pub fn draw<W: Write>(out: &mut W, screen: &Screen<'_>) -> io::Result<()> {
     let (cols, rows) = terminal_size();
 
-    out.execute(Clear(ClearType::All))?;
-    // Cursor home — emitted as the literal `ESC [ H` so callers that strip
-    // ANSI but keep the position byte (like the spec test harness) still see
-    // a home-position marker.
-    queue!(out, Print("\x1b[H"))?;
+    // Rows are overwritten in place: a `Clear(All)` first shows a blank frame (flicker).
+    // Each row clears at column 0, because `\e[K` after a full-width line erases its last cell.
+    write_frame(out, |out| {
+        // Cursor home — emitted as the literal `ESC [ H` so callers that strip
+        // ANSI but keep the position byte (like the spec test harness) still see
+        // a home-position marker.
+        queue!(out, Print("\x1b[H"), Clear(ClearType::UntilNewLine))?;
 
-    draw_header(out, screen, cols)?;
-    draw_body(out, screen, cols, rows)?;
-    draw_footer(out, screen, cols, rows)?;
-
-    out.flush()
+        draw_header(out, screen, cols)?;
+        draw_body(out, screen, cols, rows)?;
+        draw_footer(out, screen, cols, rows)
+    })
 }
 
 fn draw_header<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16) -> io::Result<()> {
@@ -110,11 +124,11 @@ fn draw_header<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16) -> io::Res
         Print("\r\n"),
     )?;
 
-    queue!(out, MoveTo(0, 1))?;
+    start_row(out, 1)?;
     rule(out, cols)?;
     queue!(out, Print("\r\n"))?;
 
-    queue!(out, MoveTo(0, 2))?;
+    start_row(out, 2)?;
     queue!(
         out,
         SetForegroundColor(Color::DarkGrey),
@@ -124,7 +138,7 @@ fn draw_header<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16) -> io::Res
     draw_query_with_cursor(out, screen.query, screen.query_cursor)?;
     queue!(out, Print("\r\n"))?;
 
-    queue!(out, MoveTo(0, 3))?;
+    start_row(out, 3)?;
     rule(out, cols)?;
     queue!(out, Print("\r\n"))?;
 
@@ -152,17 +166,35 @@ fn draw_body<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16, rows: u16) -
     let body_rows = rows.saturating_sub(HEADER_ROWS + FOOTER_ROWS) as usize;
     let total_items = screen.rows.len() + usize::from(screen.create_new.is_some());
 
-    if total_items == 0 {
-        queue!(out, MoveTo(2, HEADER_ROWS))?;
+    let drawn_rows = if total_items == 0 {
+        start_row(out, HEADER_ROWS)?;
         queue!(
             out,
+            Print("  "),
             SetForegroundColor(Color::DarkGrey),
             Print("(no workspaces yet)"),
             ResetColor,
         )?;
-        return Ok(());
-    }
+        1
+    } else {
+        draw_items(out, screen, cols, body_rows, total_items)?
+    };
 
+    // Also clears rows below a `TRY_HEIGHT` or fallback size.
+    queue!(
+        out,
+        MoveTo(0, HEADER_ROWS + drawn_rows as u16),
+        Clear(ClearType::FromCursorDown),
+    )
+}
+
+fn draw_items<W: Write>(
+    out: &mut W,
+    screen: &Screen<'_>,
+    cols: u16,
+    body_rows: usize,
+    total_items: usize,
+) -> io::Result<usize> {
     let end = (screen.scroll + body_rows).min(total_items);
     for (visual_row, item_idx) in (screen.scroll..end).enumerate() {
         let row = HEADER_ROWS + visual_row as u16;
@@ -177,7 +209,7 @@ fn draw_body<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16, rows: u16) -
         }
     }
 
-    Ok(())
+    Ok(end.saturating_sub(screen.scroll))
 }
 
 fn draw_entry<W: Write>(
@@ -189,7 +221,7 @@ fn draw_entry<W: Write>(
     selected: bool,
     marked: bool,
 ) -> io::Result<()> {
-    queue!(out, MoveTo(0, terminal_row))?;
+    start_row(out, terminal_row)?;
 
     // Selection indicator: a bold arrow. We deliberately avoid setting any
     // row background so emphasis works on both light and dark terminal
@@ -257,7 +289,7 @@ fn draw_create_new<W: Write>(
     cols: u16,
     selected: bool,
 ) -> io::Result<()> {
-    queue!(out, MoveTo(0, terminal_row))?;
+    start_row(out, terminal_row)?;
 
     if selected {
         queue!(
@@ -341,8 +373,7 @@ fn write_highlighted_name<W: Write>(
     Ok(cols)
 }
 
-/// Plain (no-highlight) name writer used for marked rows that already have an
-/// outer style (red+bold). Truncates with `…`.
+/// Writes text that already has an outer style, truncated with `…`.
 fn write_plain_name<W: Write>(out: &mut W, name: &str, max_cols: usize) -> io::Result<usize> {
     if max_cols == 0 {
         return Ok(0);
@@ -373,11 +404,11 @@ fn write_plain_name<W: Write>(out: &mut W, name: &str, max_cols: usize) -> io::R
 
 fn draw_footer<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16, rows: u16) -> io::Result<()> {
     let footer_top = rows.saturating_sub(FOOTER_ROWS);
-    queue!(out, MoveTo(0, footer_top))?;
+    start_row(out, footer_top)?;
     rule(out, cols)?;
     queue!(out, Print("\r\n"))?;
 
-    queue!(out, MoveTo(0, footer_top + 1))?;
+    start_row(out, footer_top + 1)?;
     if screen.delete_mode {
         // High-contrast warning banner: bright red bg + white bold fg.
         // Reliable on any terminal theme.
@@ -391,23 +422,29 @@ fn draw_footer<W: Write>(out: &mut W, screen: &Screen<'_>, cols: u16, rows: u16)
         let word = if n == 1 { "item" } else { "items" };
         let line =
             format!(" DELETE MODE  {n} {word} marked — Ctrl-D toggle  Enter confirm  Esc cancel ",);
-        let padding = (cols as usize).saturating_sub(UnicodeWidthStr::width(line.as_str()));
+        // Truncated to `cols`: a wrap on the last row scrolls the whole screen.
+        let used = write_plain_name(out, &line, cols as usize)?;
+        let padding = (cols as usize).saturating_sub(used);
         queue!(
             out,
-            Print(line),
             Print(" ".repeat(padding)),
             SetAttribute(Attribute::Reset),
             ResetColor,
         )?;
     } else {
-        queue!(
+        queue!(out, SetForegroundColor(Color::DarkGrey))?;
+        write_plain_name(
             out,
-            SetForegroundColor(Color::DarkGrey),
-            Print("↑/↓ Navigate  Enter Select  ^R Rename  ^G Graduate  ^D Delete  Esc Cancel"),
-            ResetColor,
+            "↑/↓ Navigate  Enter Select  ^R Rename  ^G Graduate  ^D Delete  Esc Cancel",
+            cols as usize,
         )?;
+        queue!(out, ResetColor)?;
     }
     Ok(())
+}
+
+fn start_row<W: Write>(out: &mut W, row: u16) -> io::Result<()> {
+    queue!(out, MoveTo(0, row), Clear(ClearType::UntilNewLine))
 }
 
 fn rule<W: Write>(out: &mut W, cols: u16) -> io::Result<()> {
@@ -437,15 +474,8 @@ mod tests {
         }
     }
 
-    fn render(screen: &Screen<'_>) -> String {
-        let mut buf = Vec::<u8>::new();
-        draw(&mut buf, screen).unwrap();
-        String::from_utf8_lossy(&buf).into_owned()
-    }
-
-    #[test]
-    fn empty_workspaces_show_placeholder() {
-        let screen = Screen {
+    fn empty_screen() -> Screen<'static> {
+        Screen {
             rows: &[],
             query: "",
             query_cursor: 0,
@@ -455,8 +485,26 @@ mod tests {
             marked: &[],
             delete_mode: false,
             now: SystemTime::now(),
-        };
-        assert!(render(&screen).contains("no workspaces"));
+        }
+    }
+
+    fn render(screen: &Screen<'_>) -> String {
+        let mut buf = Vec::<u8>::new();
+        draw(&mut buf, screen).unwrap();
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    #[test]
+    fn empty_workspaces_show_placeholder() {
+        assert!(render(&empty_screen()).contains("no workspaces"));
+    }
+
+    #[test]
+    fn frame_is_synchronized_and_never_clears_whole_screen() {
+        let out = render(&empty_screen());
+        assert!(out.starts_with("\x1b[?2026h"));
+        assert!(out.ends_with("\x1b[?2026l"));
+        assert!(!out.contains("\x1b[2J"));
     }
 
     #[test]

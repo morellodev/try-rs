@@ -9,7 +9,8 @@ use std::io::{self, Write};
 
 use crossterm::cursor::{Hide, Show};
 use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+    enable_raw_mode,
 };
 use crossterm::{execute, queue};
 
@@ -36,7 +37,8 @@ impl Guard {
 impl Drop for Guard {
     fn drop(&mut self) {
         let mut err = io::stderr();
-        let _ = queue!(err, Show, LeaveAlternateScreen);
+        // A panic mid-frame would otherwise leave synchronized-update mode on.
+        let _ = queue!(err, EndSynchronizedUpdate, Show, LeaveAlternateScreen);
         let _ = err.flush();
         let _ = disable_raw_mode();
     }

@@ -13,17 +13,18 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crossterm::cursor::MoveTo;
+use crossterm::queue;
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
 use crossterm::terminal::{Clear, ClearType, size};
-use crossterm::{ExecutableCommand, queue};
 
 use crate::action::{Action, DeleteTarget};
 use crate::naming::{has_date_prefix, normalize};
 use crate::workspace::{ProjectsRoot, Workspace, WorkspaceRoot};
 
 use super::input::{Event, Key, KeySource};
+use super::render;
 
 // ---------------------------------------------------------------------------
 // Shared text-input state
@@ -187,7 +188,7 @@ pub fn delete_confirm<W: Write>(
     loop {
         render_delete(out, &targets, &field)?;
         match read_text_event(keys, &mut field)? {
-            TextEvent::Continue => continue,
+            TextEvent::Continue | TextEvent::Redraw => continue,
             TextEvent::Cancel => return Ok(None),
             TextEvent::Confirm => {
                 if field.buffer != "YES" {
@@ -206,46 +207,46 @@ fn render_delete<W: Write>(
     field: &TextField,
 ) -> io::Result<()> {
     let (cols, _) = size().unwrap_or((80, 24));
-    out.execute(Clear(ClearType::All))?;
-    title(out, "🗑️  Confirm deletion", cols)?;
+    render::write_frame(out, |out| {
+        queue!(out, Clear(ClearType::All))?;
+        title(out, "🗑️  Confirm deletion", cols)?;
 
-    let n = targets.len();
-    let word = if n == 1 { "directory" } else { "directories" };
-    queue!(out, MoveTo(0, 2))?;
-    queue!(
-        out,
-        SetForegroundColor(Color::Red),
-        Print(format!("Delete {n} {word}? This cannot be undone.")),
-        ResetColor,
-    )?;
-
-    for (i, ws) in targets.iter().enumerate() {
-        queue!(out, MoveTo(2, 4 + i as u16))?;
+        let n = targets.len();
+        let word = if n == 1 { "directory" } else { "directories" };
+        queue!(out, MoveTo(0, 2))?;
         queue!(
             out,
-            SetBackgroundColor(Color::DarkRed),
-            Print(format!(" 🗑️  {} ", ws.name)),
+            SetForegroundColor(Color::Red),
+            Print(format!("Delete {n} {word}? This cannot be undone.")),
             ResetColor,
         )?;
-    }
 
-    let prompt_row = 5 + targets.len() as u16;
-    queue!(out, MoveTo(0, prompt_row))?;
-    queue!(
-        out,
-        SetForegroundColor(Color::DarkGrey),
-        Print("Type "),
-        SetForegroundColor(Color::Yellow),
-        SetAttribute(Attribute::Bold),
-        Print("YES"),
-        SetAttribute(Attribute::Reset),
-        SetForegroundColor(Color::DarkGrey),
-        Print(" to confirm: "),
-        ResetColor,
-    )?;
-    draw_field(out, field)?;
+        for (i, ws) in targets.iter().enumerate() {
+            queue!(out, MoveTo(2, 4 + i as u16))?;
+            queue!(
+                out,
+                SetBackgroundColor(Color::DarkRed),
+                Print(format!(" 🗑️  {} ", ws.name)),
+                ResetColor,
+            )?;
+        }
 
-    out.flush()
+        let prompt_row = 5 + targets.len() as u16;
+        queue!(out, MoveTo(0, prompt_row))?;
+        queue!(
+            out,
+            SetForegroundColor(Color::DarkGrey),
+            Print("Type "),
+            SetForegroundColor(Color::Yellow),
+            SetAttribute(Attribute::Bold),
+            Print("YES"),
+            SetAttribute(Attribute::Reset),
+            SetForegroundColor(Color::DarkGrey),
+            Print(" to confirm: "),
+            ResetColor,
+        )?;
+        draw_field(out, field)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +271,7 @@ pub fn rename<W: Write>(
                 error = None;
                 continue;
             }
+            TextEvent::Redraw => continue,
             TextEvent::Cancel => return Ok(None),
             TextEvent::Confirm => match validate_rename(&field.buffer, &ws.name, root.as_path()) {
                 Ok(None) => return Ok(None), // unchanged
@@ -314,28 +316,29 @@ fn render_rename<W: Write>(
     error: Option<&str>,
 ) -> io::Result<()> {
     let (cols, rows) = size().unwrap_or((80, 24));
-    out.execute(Clear(ClearType::All))?;
-    title(out, "✏️  Rename directory", cols)?;
+    render::write_frame(out, |out| {
+        queue!(out, Clear(ClearType::All))?;
+        title(out, "✏️  Rename directory", cols)?;
 
-    queue!(out, MoveTo(2, 3))?;
-    queue!(out, Print("📁 "), Print(current))?;
+        queue!(out, MoveTo(2, 3))?;
+        queue!(out, Print("📁 "), Print(current))?;
 
-    queue!(out, MoveTo(2, 5))?;
-    queue!(
-        out,
-        SetForegroundColor(Color::DarkGrey),
-        Print("New name: "),
-        ResetColor,
-    )?;
-    draw_field(out, field)?;
+        queue!(out, MoveTo(2, 5))?;
+        queue!(
+            out,
+            SetForegroundColor(Color::DarkGrey),
+            Print("New name: "),
+            ResetColor,
+        )?;
+        draw_field(out, field)?;
 
-    if let Some(msg) = error {
-        queue!(out, MoveTo(2, 7))?;
-        queue!(out, SetForegroundColor(Color::Red), Print(msg), ResetColor)?;
-    }
+        if let Some(msg) = error {
+            queue!(out, MoveTo(2, 7))?;
+            queue!(out, SetForegroundColor(Color::Red), Print(msg), ResetColor)?;
+        }
 
-    confirm_hint(out, cols, rows)?;
-    out.flush()
+        confirm_hint(out, cols, rows)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +365,7 @@ pub fn graduate<W: Write>(
                 error = None;
                 continue;
             }
+            TextEvent::Redraw => continue,
             TextEvent::Cancel => return Ok(None),
             TextEvent::Confirm => match validate_graduate(&field.buffer) {
                 Ok(dest) => {
@@ -410,40 +414,41 @@ fn render_graduate<W: Write>(
     projects: &ProjectsRoot,
 ) -> io::Result<()> {
     let (cols, rows) = size().unwrap_or((80, 24));
-    out.execute(Clear(ClearType::All))?;
-    title(out, "🎓 Graduate to project", cols)?;
+    render::write_frame(out, |out| {
+        queue!(out, Clear(ClearType::All))?;
+        title(out, "🎓 Graduate to project", cols)?;
 
-    queue!(out, MoveTo(2, 3))?;
-    queue!(out, Print("📁 "), Print(&ws.name))?;
+        queue!(out, MoveTo(2, 3))?;
+        queue!(out, Print("📁 "), Print(&ws.name))?;
 
-    queue!(out, MoveTo(2, 5))?;
-    queue!(
-        out,
-        SetForegroundColor(Color::DarkGrey),
-        Print(format!(
-            "Destination (under {}): ",
-            projects.as_path().display()
-        )),
-        ResetColor,
-    )?;
-    queue!(out, MoveTo(2, 6))?;
-    draw_field(out, field)?;
+        queue!(out, MoveTo(2, 5))?;
+        queue!(
+            out,
+            SetForegroundColor(Color::DarkGrey),
+            Print(format!(
+                "Destination (under {}): ",
+                projects.as_path().display()
+            )),
+            ResetColor,
+        )?;
+        queue!(out, MoveTo(2, 6))?;
+        draw_field(out, field)?;
 
-    queue!(out, MoveTo(2, 8))?;
-    queue!(
-        out,
-        SetForegroundColor(Color::DarkGrey),
-        Print("A symlink will be left in the tries directory."),
-        ResetColor,
-    )?;
+        queue!(out, MoveTo(2, 8))?;
+        queue!(
+            out,
+            SetForegroundColor(Color::DarkGrey),
+            Print("A symlink will be left in the tries directory."),
+            ResetColor,
+        )?;
 
-    if let Some(msg) = error {
-        queue!(out, MoveTo(2, 10))?;
-        queue!(out, SetForegroundColor(Color::Red), Print(msg), ResetColor)?;
-    }
+        if let Some(msg) = error {
+            queue!(out, MoveTo(2, 10))?;
+            queue!(out, SetForegroundColor(Color::Red), Print(msg), ResetColor)?;
+        }
 
-    confirm_hint(out, cols, rows)?;
-    out.flush()
+        confirm_hint(out, cols, rows)
+    })
 }
 
 fn strip_date_prefix(name: &str) -> &str {
@@ -489,12 +494,7 @@ fn confirm_hint<W: Write>(out: &mut W, cols: u16, rows: u16) -> io::Result<()> {
         Print("\r\n"),
     )?;
     queue!(out, MoveTo(0, rows.saturating_sub(1)))?;
-    queue!(
-        out,
-        Print("Enter: Confirm  Esc: Cancel"),
-        ResetColor,
-        Print("\r\n"),
-    )?;
+    queue!(out, Print("Enter: Confirm  Esc: Cancel"), ResetColor,)?;
     Ok(())
 }
 
@@ -536,18 +536,25 @@ fn draw_field<W: Write>(out: &mut W, field: &TextField) -> io::Result<()> {
 
 enum TextEvent {
     Continue,
+    Redraw,
     Confirm,
     Cancel,
 }
 
+/// Dialogs have no time-based content, so idle timeouts do not redraw.
 fn read_text_event(keys: &mut dyn KeySource, field: &mut TextField) -> io::Result<TextEvent> {
-    match keys.read_event(Duration::from_millis(200))? {
-        None | Some(Event::Resize) => Ok(TextEvent::Continue),
-        Some(Event::Key(key)) => Ok(match field.apply(key) {
-            TextOutcome::Continue => TextEvent::Continue,
-            TextOutcome::Confirm => TextEvent::Confirm,
-            TextOutcome::Cancel => TextEvent::Cancel,
-        }),
+    loop {
+        match keys.read_event(Duration::from_millis(200))? {
+            None => continue,
+            Some(Event::Resize) => return Ok(TextEvent::Redraw),
+            Some(Event::Key(key)) => {
+                return Ok(match field.apply(key) {
+                    TextOutcome::Continue => TextEvent::Continue,
+                    TextOutcome::Confirm => TextEvent::Confirm,
+                    TextOutcome::Cancel => TextEvent::Cancel,
+                });
+            }
+        }
     }
 }
 
