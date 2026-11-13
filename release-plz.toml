@@ -1,6 +1,6 @@
 [workspace]
-# Don't create GitHub Releases — release.yml handles that after tagging
-git_release_enable = false
+# The published release triggers release.yml, which uploads the binaries.
+git_release_enable = true
 # Use git tags for version detection (not published to crates.io).
 # Implies `cargo publish` is skipped.
 git_only = true
