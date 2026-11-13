@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  release:
+    types: [published]
+  # Manual fallback: run it on a version tag.
   workflow_dispatch:
 
 permissions:
