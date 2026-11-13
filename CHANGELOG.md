@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/morellodev/try-rs/compare/v0.1.0...v0.1.1) - 2026-11-13
+
+### Fixed
+
+- *(tui)* stop list and dialog flicker
+- *(tui)* keep cursor and erase sequences with --no-colors
+
+### Other
+
+- *(ci)* align release-plz config with upstream docs
+- note Windows test-portability gotcha in CLAUDE.md
+- add Homebrew install instructions
+- release v0.1.0 ([#1](https://github.com/morellodev/try-rs/pull/1))
+
 ## [0.1.0](https://github.com/morellodev/try-rs/releases/tag/v0.1.0) - 2026-05-18
 
 ### Added
